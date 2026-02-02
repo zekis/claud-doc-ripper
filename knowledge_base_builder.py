@@ -258,8 +258,11 @@ def extract_product_knowledge(product_name: str, content: str, cli_path: str, ex
             return result
 
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             print(f"      ❌ Error: {e}")
-            return f"# {product_name}\n\nError extracting knowledge: {e}"
+            print(f"      Details: {error_details[:500]}")
+            return f"# {product_name}\n\nError extracting knowledge: {e}\n\nDetails:\n{error_details}"
 
 
 def extract_document_template(product_name: str, content: str, cli_path: str, existing_structure: str) -> list:
@@ -272,6 +275,7 @@ def extract_document_template(product_name: str, content: str, cli_path: str, ex
 
     with SuppressAuggieWarnings():
         agent = Auggie(model="sonnet4.5", cli_path=cli_path)
+        result = None
 
         try:
             result = agent.run(
@@ -344,20 +348,24 @@ def extract_document_template(product_name: str, content: str, cli_path: str, ex
 
         except json_module.JSONDecodeError as e:
             print(f"      ❌ JSON Parse Error: {e}")
-            print(f"      Raw response: {result[:200]}...")
+            if result:
+                print(f"      Raw response: {result[:200]}...")
             return [{
                 "type": "REFERENCE",
                 "title": f"{product_name} Reference",
                 "category": "General",
-                "content": f"# {product_name} Reference Material\n\nError parsing AI response: {e}\n\nRaw content:\n{result}"
+                "content": f"# {product_name} Reference Material\n\nError parsing AI response: {e}\n\nRaw content:\n{result if result else 'No response received'}"
             }]
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
             print(f"      ❌ Error: {e}")
+            print(f"      Details: {error_details[:500]}")
             return [{
                 "type": "REFERENCE",
                 "title": f"{product_name} Reference",
                 "category": "General",
-                "content": f"# {product_name} Reference Material\n\nError extracting content: {e}"
+                "content": f"# {product_name} Reference Material\n\nError extracting content: {e}\n\nDetails:\n{error_details}"
             }]
 
 
