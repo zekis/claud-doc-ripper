@@ -5,7 +5,7 @@ Knowledge Base Builder - Builds cumulative knowledge base from Word documents
 Organizes extracted information into:
 - Products/[ProductName]/ - Product knowledge that accumulates over time
 - Clients/[ClientName]/ - Client information split into categories
-- Document Templates organized by product and type
+- Reference Materials - Guides, templates, procedures, and other reusable content organized by product and type
 """
 
 import sys
@@ -63,15 +63,15 @@ def scan_existing_structure(output_dir: str) -> str:
                 if (product_dir / "overview.md").exists():
                     structure.append(f"    overview.md (existing product knowledge)")
 
-                # Check for document templates
-                templates_dir = product_dir / "Document Templates"
-                if templates_dir.exists():
-                    structure.append(f"    Document Templates/")
-                    for category_dir in sorted(templates_dir.iterdir()):
+                # Check for reference materials
+                reference_dir = product_dir / "Reference Materials"
+                if reference_dir.exists():
+                    structure.append(f"    Reference Materials/")
+                    for category_dir in sorted(reference_dir.iterdir()):
                         if category_dir.is_dir():
                             structure.append(f"      {category_dir.name}/")
-                            for template_file in sorted(category_dir.glob("*.md")):
-                                structure.append(f"        {template_file.name}")
+                            for ref_file in sorted(category_dir.glob("*.md")):
+                                structure.append(f"        {ref_file.name}")
 
     # Scan Clients
     clients_dir = output_path / "Clients"
@@ -173,7 +173,7 @@ def extract_product_knowledge(product_name: str, content: str, cli_path: str, ex
     print(f"   📦 Extracting knowledge for: {product_name}")
 
     sample = content[:25000]
-    agent = Auggie(model="haiku4.5", cli_path=cli_path)
+    agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
     try:
         result = agent.run(
@@ -227,69 +227,96 @@ def extract_product_knowledge(product_name: str, content: str, cli_path: str, ex
         return f"# {product_name}\n\nError extracting knowledge: {e}"
 
 
-def extract_document_template(product_name: str, content: str, cli_path: str, existing_structure: str) -> str:
-    """Extract document template for a specific product"""
-    print(f"   📋 Extracting document template for: {product_name}")
+def extract_document_template(product_name: str, content: str, cli_path: str, existing_structure: str) -> list:
+    """Extract reusable reference materials from document (can return multiple)"""
+    print(f"   📋 Analyzing document for reusable reference materials: {product_name}")
 
     sample = content[:30000]
-    agent = Auggie(model="haiku4.5", cli_path=cli_path)
+    agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
     try:
         result = agent.run(
-            f"""Analyze this document and create a template guide for creating {product_name} specification documents.
+            f"""We are an engineering company building a knowledge base. Analyze this document and determine ALL the ways we might use it in the future.
 
             {existing_structure}
-
-            NOTE: Check if similar document templates already exist in the structure above.
-            If they do, maintain consistency with existing template categories and naming.
 
             DOCUMENT CONTENT:
             {sample}
 
-            IMPORTANT: Return the actual template guide content directly as markdown.
-            Do NOT say "I have created..." or describe what you're doing.
-            Just return the template guide itself.
+            TASK: Identify 1-3 different ways this document could be valuable as reference material.
 
-            Create a comprehensive template guide with these sections:
+            Consider these types of reference materials:
+            - GUIDE (how to do something - instructional content)
+            - TEMPLATE (structure for creating similar documents)
+            - SPECIFICATION (technical details of a system)
+            - PROCEDURE (step-by-step process)
+            - REFERENCE (lookup information, standards, patterns)
+            - BEST_PRACTICES (guidelines, recommendations, methodologies)
 
-            # {product_name} Specification Document Template
+            For EACH valuable use case you identify, create a separate reference document.
 
-            ## 1. Document Structure
-            List all major sections in order with subsections
+            Return your answer as a JSON array with this structure:
+            [
+              {{
+                "type": "GUIDE",
+                "title": "How to Write Technical Specifications",
+                "category": "Best Practices",
+                "content": "# How to Write Technical Specifications\\n\\n[Full markdown content here...]"
+              }},
+              {{
+                "type": "TEMPLATE",
+                "title": "Specification Document Structure",
+                "category": "Templates",
+                "content": "# Specification Document Structure\\n\\n[Full markdown content here...]"
+              }}
+            ]
 
-            ## 2. Section Guidelines
-            For each major section, explain:
-            - Purpose of the section
-            - What content to include
-            - Typical length
-            - Required vs optional
+            Guidelines for extraction:
+            - For GUIDES: Preserve instructional content, examples, methodology
+            - For TEMPLATES: Extract structure, required/optional sections, formatting
+            - For SPECIFICATIONS: Keep technical patterns, architecture, integration approaches
+            - For PROCEDURES: Preserve process steps, decision points, roles
+            - For REFERENCE: Organize lookup information, standards, patterns
+            - For BEST_PRACTICES: Capture guidelines, recommendations, lessons learned
 
-            ## 3. Formatting Guidelines
-            - Heading styles and numbering
-            - Table and figure conventions
-            - How to format requirements
-
-            ## 4. Content Guidelines
-            - Technical depth expected
-            - Writing style
-            - What to include/exclude
-
-            ## 5. Example Section Template
-            Show an example of how to structure a typical section
-
-            Make it actionable and specific to {product_name} documentation.
-            Remove all client-specific content but keep the structure and guidelines.
-            Return ONLY the markdown template guide content, nothing else.
+            IMPORTANT:
+            - Remove client-specific details but keep the valuable patterns
+            - Make each output actionable and reusable for {product_name}
+            - Each "content" field should be complete markdown (not a summary)
+            - Return ONLY valid JSON, nothing else
+            - If only one use case, return array with one item
             """,
             return_type=str,
             timeout=180
         )
 
-        return result
+        # Parse JSON response
+        import json
+        reference_materials = json.loads(result)
 
+        if not isinstance(reference_materials, list):
+            reference_materials = [reference_materials]
+
+        print(f"      ✅ Identified {len(reference_materials)} reference material(s)")
+        return reference_materials
+
+    except json.JSONDecodeError as e:
+        print(f"      ❌ JSON Parse Error: {e}")
+        print(f"      Raw response: {result[:200]}...")
+        return [{
+            "type": "REFERENCE",
+            "title": f"{product_name} Reference",
+            "category": "General",
+            "content": f"# {product_name} Reference Material\n\nError parsing AI response: {e}\n\nRaw content:\n{result}"
+        }]
     except Exception as e:
         print(f"      ❌ Error: {e}")
-        return f"# {product_name} Document Template\n\nError extracting template: {e}"
+        return [{
+            "type": "REFERENCE",
+            "title": f"{product_name} Reference",
+            "category": "General",
+            "content": f"# {product_name} Reference Material\n\nError extracting content: {e}"
+        }]
 
 
 def extract_client_info(client_name: str, content: str, cli_path: str, existing_structure: str) -> dict:
@@ -348,8 +375,8 @@ def extract_client_info(client_name: str, content: str, cli_path: str, existing_
 
 
 def save_product_knowledge(base_dir: Path, product_name: str, knowledge: str,
-                          template: str, doc_type: str, doc_category: str):
-    """Save product knowledge and template to appropriate folders"""
+                          reference_materials: list, doc_type: str, doc_category: str):
+    """Save product knowledge and reference materials to appropriate folders"""
     product_dir = base_dir / "Products" / product_name
     product_dir.mkdir(parents=True, exist_ok=True)
 
@@ -361,15 +388,25 @@ def save_product_knowledge(base_dir: Path, product_name: str, knowledge: str,
         f.write(knowledge)
     print(f"      ✅ Saved: {knowledge_file}")
 
-    # Save document template
-    template_dir = product_dir / "Document Templates" / doc_category
-    template_dir.mkdir(parents=True, exist_ok=True)
-    template_file = template_dir / f"{doc_type}.md"
-    with open(template_file, 'w', encoding='utf-8') as f:
-        f.write(f"# {product_name} - {doc_type} Template\n\n")
-        f.write(f"*Template for creating {doc_type} documents for {product_name}*\n\n")
-        f.write(template)
-    print(f"      ✅ Saved: {template_file}")
+    # Save each reference material (guides, templates, procedures, etc.)
+    for ref_material in reference_materials:
+        ref_type = ref_material.get('type', 'REFERENCE')
+        ref_title = ref_material.get('title', doc_type)
+        ref_category = ref_material.get('category', doc_category)
+        ref_content = ref_material.get('content', '')
+
+        # Create safe filename from title
+        safe_filename = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in ref_title)
+        safe_filename = safe_filename.replace(' ', '_')
+
+        reference_dir = product_dir / "Reference Materials" / ref_category
+        reference_dir.mkdir(parents=True, exist_ok=True)
+        reference_file = reference_dir / f"{safe_filename}.md"
+
+        with open(reference_file, 'w', encoding='utf-8') as f:
+            f.write(f"*Type: {ref_type} | Source: {doc_type}*\n\n")
+            f.write(ref_content)
+        print(f"      ✅ Saved: {reference_file}")
 
 
 def save_client_info(base_dir: Path, client_name: str, client_data: dict):
@@ -483,11 +520,11 @@ def process_document(doc_path: str, base_dir: Path, input_dir: str, cli_path: st
             # Extract product knowledge
             knowledge = extract_product_knowledge(product, content, cli_path, existing_structure)
 
-            # Extract document template
-            template = extract_document_template(product, content, cli_path, existing_structure)
+            # Extract reusable reference materials (can return multiple)
+            reference_materials = extract_document_template(product, content, cli_path, existing_structure)
 
             # Save to knowledge base
-            save_product_knowledge(base_dir, product, knowledge, template, doc_type, doc_category)
+            save_product_knowledge(base_dir, product, knowledge, reference_materials, doc_type, doc_category)
             print()
 
         # Process client information
