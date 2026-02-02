@@ -261,12 +261,14 @@ def extract_document_template(product_name: str, content: str, cli_path: str, ex
                 "type": "GUIDE",
                 "title": "How to Write Technical Specifications",
                 "category": "Best Practices",
+                "tags": ["specification", "documentation", "technical-writing"],
                 "content": "# How to Write Technical Specifications\\n\\n[Full markdown content here...]"
               }},
               {{
                 "type": "TEMPLATE",
                 "title": "Specification Document Structure",
                 "category": "Templates",
+                "tags": ["template", "structure", "specification"],
                 "content": "# Specification Document Structure\\n\\n[Full markdown content here...]"
               }}
             ]
@@ -283,6 +285,8 @@ def extract_document_template(product_name: str, content: str, cli_path: str, ex
             - Remove client-specific details but keep the valuable patterns
             - Make each output actionable and reusable for {product_name}
             - Each "content" field should be complete markdown (not a summary)
+            - Include 3-5 relevant tags for each reference material
+            - Tags should be lowercase, hyphenated (e.g., "technical-writing", "best-practices")
             - Return ONLY valid JSON, nothing else
             - If only one use case, return array with one item
             """,
@@ -377,12 +381,22 @@ def extract_client_info(client_name: str, content: str, cli_path: str, existing_
 def save_product_knowledge(base_dir: Path, product_name: str, knowledge: str,
                           reference_materials: list, doc_type: str, doc_category: str):
     """Save product knowledge and reference materials to appropriate folders"""
+    from datetime import datetime
+
     product_dir = base_dir / "Products" / product_name
     product_dir.mkdir(parents=True, exist_ok=True)
 
-    # Save product knowledge
+    # Save product knowledge with YAML front matter
     knowledge_file = product_dir / "overview.md"
     with open(knowledge_file, 'w', encoding='utf-8') as f:
+        # YAML front matter
+        f.write("---\n")
+        f.write(f"title: \"{product_name}\"\n")
+        f.write(f"type: \"Product Overview\"\n")
+        f.write(f"product: \"{product_name}\"\n")
+        f.write(f"date_updated: \"{datetime.now().strftime('%Y-%m-%d')}\"\n")
+        f.write("---\n\n")
+
         f.write(f"# {product_name}\n\n")
         f.write(f"*Last updated from document processing*\n\n")
         f.write(knowledge)
@@ -394,6 +408,7 @@ def save_product_knowledge(base_dir: Path, product_name: str, knowledge: str,
         ref_title = ref_material.get('title', doc_type)
         ref_category = ref_material.get('category', doc_category)
         ref_content = ref_material.get('content', '')
+        ref_tags = ref_material.get('tags', [])
 
         # Create safe filename from title
         safe_filename = "".join(c if c.isalnum() or c in (' ', '-', '_') else '_' for c in ref_title)
@@ -404,19 +419,48 @@ def save_product_knowledge(base_dir: Path, product_name: str, knowledge: str,
         reference_file = reference_dir / f"{safe_filename}.md"
 
         with open(reference_file, 'w', encoding='utf-8') as f:
-            f.write(f"*Type: {ref_type} | Source: {doc_type}*\n\n")
+            # YAML front matter
+            f.write("---\n")
+            f.write(f"title: \"{ref_title}\"\n")
+            f.write(f"type: \"{ref_type}\"\n")
+            f.write(f"category: \"{ref_category}\"\n")
+            f.write(f"product: \"{product_name}\"\n")
+            f.write(f"source_document: \"{doc_type}\"\n")
+            f.write(f"date_extracted: \"{datetime.now().strftime('%Y-%m-%d')}\"\n")
+
+            # Tags as YAML array
+            if ref_tags:
+                f.write("tags:\n")
+                for tag in ref_tags:
+                    f.write(f"  - {tag}\n")
+            else:
+                f.write("tags: []\n")
+
+            f.write("---\n\n")
+
+            # Content
             f.write(ref_content)
         print(f"      ✅ Saved: {reference_file}")
 
 
 def save_client_info(base_dir: Path, client_name: str, client_data: dict):
     """Save client information split into separate files"""
+    from datetime import datetime
+
     client_dir = base_dir / "Clients" / client_name
     client_dir.mkdir(parents=True, exist_ok=True)
+
+    date_str = datetime.now().strftime('%Y-%m-%d')
 
     # Save overview
     if client_data.get("overview"):
         with open(client_dir / "overview.md", 'w', encoding='utf-8') as f:
+            f.write("---\n")
+            f.write(f"title: \"{client_name} - Overview\"\n")
+            f.write(f"type: \"Client Overview\"\n")
+            f.write(f"client: \"{client_name}\"\n")
+            f.write(f"date_updated: \"{date_str}\"\n")
+            f.write("---\n\n")
             f.write(f"# {client_name} - Overview\n\n")
             f.write(client_data["overview"])
         print(f"      ✅ Saved: {client_dir / 'overview.md'}")
@@ -424,6 +468,12 @@ def save_client_info(base_dir: Path, client_name: str, client_data: dict):
     # Save locations
     if client_data.get("locations"):
         with open(client_dir / "locations.md", 'w', encoding='utf-8') as f:
+            f.write("---\n")
+            f.write(f"title: \"{client_name} - Locations\"\n")
+            f.write(f"type: \"Client Locations\"\n")
+            f.write(f"client: \"{client_name}\"\n")
+            f.write(f"date_updated: \"{date_str}\"\n")
+            f.write("---\n\n")
             f.write(f"# {client_name} - Locations\n\n")
             for loc in client_data["locations"]:
                 f.write(f"- {loc}\n")
@@ -432,6 +482,12 @@ def save_client_info(base_dir: Path, client_name: str, client_data: dict):
     # Save hardware
     if client_data.get("hardware"):
         with open(client_dir / "hardware.md", 'w', encoding='utf-8') as f:
+            f.write("---\n")
+            f.write(f"title: \"{client_name} - Hardware\"\n")
+            f.write(f"type: \"Client Hardware\"\n")
+            f.write(f"client: \"{client_name}\"\n")
+            f.write(f"date_updated: \"{date_str}\"\n")
+            f.write("---\n\n")
             f.write(f"# {client_name} - Hardware\n\n")
             for hw in client_data["hardware"]:
                 f.write(f"- {hw}\n")
@@ -440,6 +496,12 @@ def save_client_info(base_dir: Path, client_name: str, client_data: dict):
     # Save configuration
     if client_data.get("configuration"):
         with open(client_dir / "configuration.md", 'w', encoding='utf-8') as f:
+            f.write("---\n")
+            f.write(f"title: \"{client_name} - Configuration\"\n")
+            f.write(f"type: \"Client Configuration\"\n")
+            f.write(f"client: \"{client_name}\"\n")
+            f.write(f"date_updated: \"{date_str}\"\n")
+            f.write("---\n\n")
             f.write(f"# {client_name} - Configuration\n\n")
             for cfg in client_data["configuration"]:
                 f.write(f"- {cfg}\n")
@@ -448,6 +510,12 @@ def save_client_info(base_dir: Path, client_name: str, client_data: dict):
     # Save contacts
     if client_data.get("contacts"):
         with open(client_dir / "contacts.md", 'w', encoding='utf-8') as f:
+            f.write("---\n")
+            f.write(f"title: \"{client_name} - Contacts\"\n")
+            f.write(f"type: \"Client Contacts\"\n")
+            f.write(f"client: \"{client_name}\"\n")
+            f.write(f"date_updated: \"{date_str}\"\n")
+            f.write("---\n\n")
             f.write(f"# {client_name} - Contacts\n\n")
             for contact in client_data["contacts"]:
                 f.write(f"- {contact}\n")
