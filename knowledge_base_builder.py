@@ -211,7 +211,7 @@ def extract_product_knowledge(product_name: str, content: str, cli_path: str, ex
         agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
         try:
-                result = agent.run(
+            result = agent.run(
                 f"""Extract detailed information about {product_name} from this document.
 
                 {existing_structure}
@@ -274,7 +274,7 @@ def extract_document_template(product_name: str, content: str, cli_path: str, ex
         agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
         try:
-                result = agent.run(
+            result = agent.run(
                 f"""We are an engineering company building a knowledge base. Analyze this document and determine ALL the ways we might use it in the future.
 
                 {existing_structure}
