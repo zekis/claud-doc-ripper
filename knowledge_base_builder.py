@@ -14,6 +14,7 @@ import json
 import argparse
 import warnings
 import logging
+import contextlib
 from pathlib import Path
 from typing import List
 from docx import Document
@@ -22,6 +23,32 @@ from auggie_sdk import Auggie
 # Suppress Auggie SDK asyncio warnings (harmless exit code 0 messages)
 warnings.filterwarnings("ignore", category=RuntimeWarning, module="asyncio")
 logging.getLogger("auggie_sdk").setLevel(logging.ERROR)
+
+
+class SuppressAuggieWarnings:
+    """Context manager to suppress Auggie SDK stderr warnings"""
+    def __enter__(self):
+        self._original_stderr = sys.stderr
+        # Redirect stderr to filter out Auggie warnings
+        sys.stderr = self
+        self._buffer = []
+        return self
+
+    def write(self, text):
+        # Filter out the specific Auggie SDK warnings
+        if 'Task exception was never retrieved' in text or \
+           'Agent process exited with code 0' in text or \
+           'auggie_sdk/acp/client.py' in text or \
+           'wait_for_process_exit' in text:
+            return  # Suppress these messages
+        # Pass through everything else
+        self._original_stderr.write(text)
+
+    def flush(self):
+        self._original_stderr.flush()
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        sys.stderr = self._original_stderr
 
 
 def find_auggie_cli():
@@ -179,154 +206,159 @@ def extract_product_knowledge(product_name: str, content: str, cli_path: str, ex
     print(f"   📦 Extracting knowledge for: {product_name}")
 
     sample = content[:25000]
-    agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
-    try:
-        result = agent.run(
-            f"""Extract detailed information about {product_name} from this document.
+    with SuppressAuggieWarnings():
+        agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
-            {existing_structure}
+        try:
+                result = agent.run(
+                f"""Extract detailed information about {product_name} from this document.
 
-            NOTE: If {product_name} already exists in the structure above, this content will be ADDED to existing knowledge.
-            Focus on extracting NEW information that complements what might already exist.
+                {existing_structure}
 
-            DOCUMENT CONTENT:
-            {sample}
+                NOTE: If {product_name} already exists in the structure above, this content will be ADDED to existing knowledge.
+                Focus on extracting NEW information that complements what might already exist.
 
-            IMPORTANT: Return the actual markdown content directly. Do NOT say "I have created..." or describe what you're doing.
-            Just return the knowledge article content itself.
+                DOCUMENT CONTENT:
+                {sample}
 
-            Create a comprehensive knowledge article about {product_name} with these sections:
+                IMPORTANT: Return the actual markdown content directly. Do NOT say "I have created..." or describe what you're doing.
+                Just return the knowledge article content itself.
 
-            ## Overview
-            - What is {product_name}?
-            - Purpose and main capabilities
+                Create a comprehensive knowledge article about {product_name} with these sections:
 
-            ## Features
-            - List all features and capabilities mentioned
-            - Technical specifications
+                ## Overview
+                - What is {product_name}?
+                - Purpose and main capabilities
 
-            ## Integration & Interfaces
-            - How it integrates with other systems
-            - Data exchanges and interfaces
+                ## Features
+                - List all features and capabilities mentioned
+                - Technical specifications
 
-            ## Configuration
-            - Configuration options mentioned
-            - Setup requirements
+                ## Integration & Interfaces
+                - How it integrates with other systems
+                - Data exchanges and interfaces
 
-            ## Use Cases
-            - How it's used in this context
-            - Operational procedures
+                ## Configuration
+                - Configuration options mentioned
+                - Setup requirements
 
-            Format as markdown. Be detailed and technical.
-            Remove client-specific examples but keep general product information.
-            Return ONLY the markdown content, nothing else.
-            """,
-            return_type=str,
-            timeout=180
-        )
+                ## Use Cases
+                - How it's used in this context
+                - Operational procedures
 
-        return result
+                Format as markdown. Be detailed and technical.
+                Remove client-specific examples but keep general product information.
+                Return ONLY the markdown content, nothing else.
+                """,
+                return_type=str,
+                timeout=180
+            )
 
-    except Exception as e:
-        print(f"      ❌ Error: {e}")
-        return f"# {product_name}\n\nError extracting knowledge: {e}"
+            return result
+
+        except Exception as e:
+            print(f"      ❌ Error: {e}")
+            return f"# {product_name}\n\nError extracting knowledge: {e}"
 
 
 def extract_document_template(product_name: str, content: str, cli_path: str, existing_structure: str) -> list:
     """Extract reusable reference materials from document (can return multiple)"""
+    import json as json_module
+
     print(f"   📋 Analyzing document for reusable reference materials: {product_name}")
 
     sample = content[:30000]
-    agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
-    try:
-        result = agent.run(
-            f"""We are an engineering company building a knowledge base. Analyze this document and determine ALL the ways we might use it in the future.
+    with SuppressAuggieWarnings():
+        agent = Auggie(model="sonnet4.5", cli_path=cli_path)
 
-            {existing_structure}
+        try:
+                result = agent.run(
+                f"""We are an engineering company building a knowledge base. Analyze this document and determine ALL the ways we might use it in the future.
 
-            DOCUMENT CONTENT:
-            {sample}
+                {existing_structure}
 
-            TASK: Identify 1-3 different ways this document could be valuable as reference material.
+                DOCUMENT CONTENT:
+                {sample}
 
-            Consider these types of reference materials:
-            - GUIDE (how to do something - instructional content)
-            - TEMPLATE (structure for creating similar documents)
-            - SPECIFICATION (technical details of a system)
-            - PROCEDURE (step-by-step process)
-            - REFERENCE (lookup information, standards, patterns)
-            - BEST_PRACTICES (guidelines, recommendations, methodologies)
+                TASK: Identify 1-3 different ways this document could be valuable as reference material.
 
-            For EACH valuable use case you identify, create a separate reference document.
+                Consider these types of reference materials:
+                - GUIDE (how to do something - instructional content)
+                - TEMPLATE (structure for creating similar documents)
+                - SPECIFICATION (technical details of a system)
+                - PROCEDURE (step-by-step process)
+                - REFERENCE (lookup information, standards, patterns)
+                - BEST_PRACTICES (guidelines, recommendations, methodologies)
 
-            Return your answer as a JSON array with this structure:
-            [
-              {{
-                "type": "GUIDE",
-                "title": "How to Write Technical Specifications",
-                "category": "Best Practices",
-                "tags": ["specification", "documentation", "technical-writing"],
-                "content": "# How to Write Technical Specifications\\n\\n[Full markdown content here...]"
-              }},
-              {{
-                "type": "TEMPLATE",
-                "title": "Specification Document Structure",
-                "category": "Templates",
-                "tags": ["template", "structure", "specification"],
-                "content": "# Specification Document Structure\\n\\n[Full markdown content here...]"
-              }}
-            ]
+                For EACH valuable use case you identify, create a separate reference document.
 
-            Guidelines for extraction:
-            - For GUIDES: Preserve instructional content, examples, methodology
-            - For TEMPLATES: Extract structure, required/optional sections, formatting
-            - For SPECIFICATIONS: Keep technical patterns, architecture, integration approaches
-            - For PROCEDURES: Preserve process steps, decision points, roles
-            - For REFERENCE: Organize lookup information, standards, patterns
-            - For BEST_PRACTICES: Capture guidelines, recommendations, lessons learned
+                Return your answer as a JSON array with this structure:
+                [
+                  {{
+                    "type": "GUIDE",
+                    "title": "How to Write Technical Specifications",
+                    "category": "Best Practices",
+                    "tags": ["specification", "documentation", "technical-writing"],
+                    "content": "# How to Write Technical Specifications\\n\\n[Full markdown content here...]"
+                  }},
+                  {{
+                    "type": "TEMPLATE",
+                    "title": "Specification Document Structure",
+                    "category": "Templates",
+                    "tags": ["template", "structure", "specification"],
+                    "content": "# Specification Document Structure\\n\\n[Full markdown content here...]"
+                  }}
+                ]
 
-            IMPORTANT:
-            - Remove client-specific details but keep the valuable patterns
-            - Make each output actionable and reusable for {product_name}
-            - Each "content" field should be complete markdown (not a summary)
-            - Include 3-5 relevant tags for each reference material
-            - Tags should be lowercase, hyphenated (e.g., "technical-writing", "best-practices")
-            - Return ONLY valid JSON, nothing else
-            - If only one use case, return array with one item
-            """,
-            return_type=str,
-            timeout=180
-        )
+                Guidelines for extraction:
+                - For GUIDES: Preserve instructional content, examples, methodology
+                - For TEMPLATES: Extract structure, required/optional sections, formatting
+                - For SPECIFICATIONS: Keep technical patterns, architecture, integration approaches
+                - For PROCEDURES: Preserve process steps, decision points, roles
+                - For REFERENCE: Organize lookup information, standards, patterns
+                - For BEST_PRACTICES: Capture guidelines, recommendations, lessons learned
 
-        # Parse JSON response
-        import json
-        reference_materials = json.loads(result)
+                IMPORTANT:
+                - Remove client-specific details but keep the valuable patterns
+                - Make each output actionable and reusable for {product_name}
+                - Each "content" field should be complete markdown (not a summary)
+                - Include 3-5 relevant tags for each reference material
+                - Tags should be lowercase, hyphenated (e.g., "technical-writing", "best-practices")
+                - Return ONLY valid JSON, nothing else
+                - If only one use case, return array with one item
+                """,
+                return_type=str,
+                timeout=180
+            )
 
-        if not isinstance(reference_materials, list):
-            reference_materials = [reference_materials]
+            # Parse JSON response
+            reference_materials = json_module.loads(result)
 
-        print(f"      ✅ Identified {len(reference_materials)} reference material(s)")
-        return reference_materials
+            if not isinstance(reference_materials, list):
+                reference_materials = [reference_materials]
 
-    except json.JSONDecodeError as e:
-        print(f"      ❌ JSON Parse Error: {e}")
-        print(f"      Raw response: {result[:200]}...")
-        return [{
-            "type": "REFERENCE",
-            "title": f"{product_name} Reference",
-            "category": "General",
-            "content": f"# {product_name} Reference Material\n\nError parsing AI response: {e}\n\nRaw content:\n{result}"
-        }]
-    except Exception as e:
-        print(f"      ❌ Error: {e}")
-        return [{
-            "type": "REFERENCE",
-            "title": f"{product_name} Reference",
-            "category": "General",
-            "content": f"# {product_name} Reference Material\n\nError extracting content: {e}"
-        }]
+            print(f"      ✅ Identified {len(reference_materials)} reference material(s)")
+            return reference_materials
+
+        except json_module.JSONDecodeError as e:
+            print(f"      ❌ JSON Parse Error: {e}")
+            print(f"      Raw response: {result[:200]}...")
+            return [{
+                "type": "REFERENCE",
+                "title": f"{product_name} Reference",
+                "category": "General",
+                "content": f"# {product_name} Reference Material\n\nError parsing AI response: {e}\n\nRaw content:\n{result}"
+            }]
+        except Exception as e:
+            print(f"      ❌ Error: {e}")
+            return [{
+                "type": "REFERENCE",
+                "title": f"{product_name} Reference",
+                "category": "General",
+                "content": f"# {product_name} Reference Material\n\nError extracting content: {e}"
+            }]
 
 
 def extract_client_info(client_name: str, content: str, cli_path: str, existing_structure: str) -> dict:
