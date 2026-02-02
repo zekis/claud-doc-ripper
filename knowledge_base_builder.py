@@ -12,10 +12,16 @@ import sys
 import os
 import json
 import argparse
+import warnings
+import logging
 from pathlib import Path
 from typing import List
 from docx import Document
 from auggie_sdk import Auggie
+
+# Suppress Auggie SDK asyncio warnings (harmless exit code 0 messages)
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="asyncio")
+logging.getLogger("auggie_sdk").setLevel(logging.ERROR)
 
 
 def find_auggie_cli():
@@ -653,6 +659,23 @@ def main():
     )
 
     args = parser.parse_args()
+
+    # Suppress asyncio task exception warnings from Auggie SDK
+    import asyncio
+    asyncio.set_event_loop_policy(asyncio.DefaultEventLoopPolicy())
+
+    # Suppress the "Task exception was never retrieved" messages
+    def exception_handler(loop, context):
+        # Only suppress the specific Auggie SDK exit code 0 errors
+        exception = context.get('exception')
+        if isinstance(exception, RuntimeError) and 'Agent process exited with code 0' in str(exception):
+            return  # Silently ignore
+        # For other exceptions, use default handling
+        loop.default_exception_handler(context)
+
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    loop.set_exception_handler(exception_handler)
 
     # Validate arguments
     if not args.document and not args.dir:
